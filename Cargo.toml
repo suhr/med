@@ -6,4 +6,5 @@ authors = ["Сухарик <suhr@i2pmail.org>"]
 [dependencies]
 portmidi = "^0.2"
 monochord = "0.1"
-rustyline = "1.0.0"
+rustyline = "1.0"
+clap = "2"

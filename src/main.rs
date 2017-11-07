@@ -3,8 +3,10 @@
 extern crate portmidi;
 extern crate monochord;
 extern crate rustyline;
+extern crate clap;
 
-use std::io::{Read, BufReader};
+use std::io::{Read, BufReader, BufRead};
+use std::path::PathBuf;
 
 #[derive(Debug)]
 enum Message {
@@ -159,7 +161,7 @@ fn read_number(first: char, chs: &mut ::std::str::Chars) -> (String, Option<char
     }
 }
 
-pub fn tokenize(string: String) -> Vec<Token> {
+pub fn tokenize(string: &str) -> Vec<Token> {
     let mut chs = string.chars();
     let mut toks = vec![];
 
@@ -251,6 +253,15 @@ struct Interpreter {
 }
 
 impl Interpreter {
+    fn init(&mut self) {
+        if !self.lines.is_empty() {
+            for l in &*self.lines.clone() {
+                if l == "" { break }
+                println!("{}", l);
+                self.exec(l);
+            }
+        }
+    }
     fn read_integer(&mut self) -> Result<i64, ()> {
         match self.stack.pop() {
             Some(Token::Integer(i)) => Ok(i),
@@ -265,7 +276,7 @@ impl Interpreter {
         }
     }
 
-    fn exec(&mut self, line: String) -> Result<(), ()> {
+    fn exec(&mut self, line: &str) -> Result<(), ()> {
         let toks = tokenize(line);
         for t in toks.into_iter() {
             match t {
@@ -273,6 +284,22 @@ impl Interpreter {
                 v => self.stack.push(v),
             }
         }
+        Ok(())
+    }
+
+    fn read_file(&mut self) -> Result<(), ()> {
+        if let Some(ref file) = self.file {
+            let file = ::std::fs::File::open(file).map_err(|_| ())?;
+            let reader = BufReader::new(file);
+            
+            let mut lines: Vec<String> = vec![];
+            for l in reader.lines() {
+                lines.push(l.map_err(|_| ())?)
+            };
+
+            self.lines = lines
+        };
+
         Ok(())
     }
 
@@ -304,13 +331,59 @@ impl Interpreter {
             "w" => {
                 drop(self.backend.send(Message::Wait));
             },
+            "p" => {
+                let to = self.read_integer()?;
+                let from = self.read_integer()? - 1;
+
+                let lines = self.lines[from as usize .. to as usize].to_owned();
+                for l in lines {
+                    self.exec(&l);
+                    drop(self.backend.send(Message::Wait));
+                }
+            },
+            "r" => {
+                self.read_file()?
+            }
             _ => (),
         }
         Ok(())
     }
 }
 
+fn open_file(name: &str) -> (PathBuf, Vec<String>) {
+    let path = ::std::path::PathBuf::from(name);
+    let file = ::std::fs::File::open(&path)
+        .expect(&*format!("Failed to open {}", name));
+    let reader = BufReader::new(file);
+    
+    let mut lines: Vec<String> = vec![];
+    for l in reader.lines() {
+        lines.push(l.expect(&*format!("Failed to read {}", name)))
+    };
+
+    (path, lines)
+}
+
 fn main() {
+    let matches = clap::App::new("med")
+        .version(env!("CARGO_PKG_VERSION"))
+        .about("The Ed of music trackers")
+        .arg(
+            clap::Arg::with_name("file")
+            .help("MED file")
+            .index(1)
+        )
+        .get_matches();
+    let (file, lines) =
+        match matches.value_of("file") {
+            Some(f) => {
+                let (f, l) = open_file(f);
+                (Some(f), l)
+            },
+            None => {
+                (None, vec![])
+            }
+        };
     let midi = portmidi::PortMidi::new().unwrap();
     let out = midi.default_output_port(1024).unwrap();
 
@@ -318,9 +391,12 @@ fn main() {
     let mut int = Interpreter {
         stack: vec![],
         backend,
-        file: None,
-        lines: vec![],
+        file,
+        lines
     };
+
+    int.init();
+
     let mut rl: rustyline::Editor<()> = rustyline::Editor::new();
     rl.set_history_max_len(1024);
 
@@ -328,7 +404,8 @@ fn main() {
         let line = rl.readline("? ");
         match line {
             Ok(line) => {
-                int.exec(line);
+                rl.add_history_entry(&line);
+                int.exec(&line);
             },
             _ => break,
         }
