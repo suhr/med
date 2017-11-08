@@ -36,7 +36,7 @@ impl Backend {
             let mut backend = Backend {
                 midi_out: port,
                 messages: rx,
-                period: 31,
+                period: 12,
                 key: 0,
                 bpm: 120,
                 lpb: 4,
@@ -338,7 +338,15 @@ impl Interpreter {
                 let edo = self.read_integer()?;
 
                 drop(self.backend.send(Message::Edo(edo as u16)));
-            }
+            },
+            "bpm" => {
+                let bpm = self.read_integer()?;
+                drop(self.backend.send(Message::Bpm(bpm as u16)));
+            },
+            "lps" => {
+                let lpb = self.read_integer()?;
+                drop(self.backend.send(Message::Lpb(lpb as u16)));
+            },
             "w" => {
                 drop(self.backend.send(Message::Wait));
             },
