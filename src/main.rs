@@ -250,11 +250,14 @@ struct Interpreter {
     backend: ::std::sync::mpsc::Sender<Message>,
     file: Option<::std::path::PathBuf>,
     lines: Vec<String>,
+    postponed: Vec<Message>,
 }
 
 impl Interpreter {
     fn init(&mut self) {
-        if !self.lines.is_empty() {
+        if let Some(file) = self.file.clone() {
+            self.lines = open_file(&file);
+
             for l in &*self.lines.clone() {
                 if l == "" { break }
                 println!("{}", l);
@@ -312,6 +315,14 @@ impl Interpreter {
 
                 drop(self.backend.send(Message::NoteOn(ch as u8, note, vel as u8)));
             },
+            "." => {
+                let vel = self.read_integer()?;
+                let note = self.read_note()?;
+                let ch = self.read_integer()?;
+
+                drop(self.backend.send(Message::NoteOn(ch as u8, note, vel as u8)));
+                self.postponed.push(Message::NoteOff(ch as u8, note))
+            },
             "-" => {
                 let note = self.read_note()?;
                 let ch = self.read_integer()?;
@@ -332,15 +343,24 @@ impl Interpreter {
                 drop(self.backend.send(Message::Wait));
             },
             "p" => {
+                self.read_file()?;
+
                 let to = self.read_integer()?;
                 let from = self.read_integer()? - 1;
 
-                let lines = self.lines[from as usize .. to as usize].to_owned();
+                let lines = self.lines.get(from as usize .. to as usize).ok_or(())?.to_owned();
                 for l in lines {
                     self.exec(&l);
                     drop(self.backend.send(Message::Wait));
+
+                    for m in self.postponed.drain(..) {
+                        drop(self.backend.send(m));
+                    }
                 }
             },
+            "s" => {
+                drop(self.backend.send(Message::Stop));
+            }
             "r" => {
                 self.read_file()?
             }
@@ -350,8 +370,8 @@ impl Interpreter {
     }
 }
 
-fn open_file(name: &str) -> (PathBuf, Vec<String>) {
-    let path = ::std::path::PathBuf::from(name);
+fn open_file(path: &std::path::PathBuf) -> Vec<String> {
+    let name = path.to_str().unwrap();
     let file = ::std::fs::File::open(&path)
         .expect(&*format!("Failed to open {}", name));
     let reader = BufReader::new(file);
@@ -361,7 +381,7 @@ fn open_file(name: &str) -> (PathBuf, Vec<String>) {
         lines.push(l.expect(&*format!("Failed to read {}", name)))
     };
 
-    (path, lines)
+    lines
 }
 
 fn main() {
@@ -374,16 +394,8 @@ fn main() {
             .index(1)
         )
         .get_matches();
-    let (file, lines) =
-        match matches.value_of("file") {
-            Some(f) => {
-                let (f, l) = open_file(f);
-                (Some(f), l)
-            },
-            None => {
-                (None, vec![])
-            }
-        };
+
+    let file = matches.value_of("file").map(::std::path::PathBuf::from);
     let midi = portmidi::PortMidi::new().unwrap();
     let out = midi.default_output_port(1024).unwrap();
 
@@ -392,7 +404,8 @@ fn main() {
         stack: vec![],
         backend,
         file,
-        lines
+        lines: vec![],
+        postponed: vec![],
     };
 
     int.init();
