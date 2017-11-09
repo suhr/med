@@ -16,7 +16,7 @@ enum Message {
     Key(i16),
     Bpm(u16),
     Lpb(u16),
-    Wait,
+    Wait(u16),
     Stop,
 }
 
@@ -27,6 +27,7 @@ struct Backend {
     key: i16,
     bpm: u16,
     lpb: u16,
+    notes: Vec<(u8, (i8, i16))>
 }
 
 impl Backend {
@@ -40,6 +41,7 @@ impl Backend {
                 key: 0,
                 bpm: 120,
                 lpb: 4,
+                notes: vec![],
             };
 
             backend.run()
@@ -54,13 +56,14 @@ impl Backend {
             let msgs: Vec<Message> = self.messages.try_iter().collect();
             for m in msgs {
                 match m {
-                    Wait => {
+                    Wait(t) => {
                         let lps = 60_000.0 / (self.bpm as f64 * self.lpb as f64);
-                        let dt = ::std::time::Duration::from_millis(lps as u64);
+                        let dt = ::std::time::Duration::from_millis(lps as u64 * t as u64);
                         ::std::thread::sleep(dt);
 
                         match self.messages.try_recv() {
                             Ok(Stop) => {
+                                self.all_notes_off();
                                 break
                             },
                             Ok(msg) => self.run_msg(msg),
@@ -85,18 +88,22 @@ impl Backend {
             Bpm(bpm) => self.bpm = bpm,
             Lpb(lpb) => self.lpb = lpb,
             Edo(edo) => self.period = edo,
+            Stop => self.all_notes_off(),
             _ => (),
         }
     }
 
     fn note_on(&mut self, ch: u8, note: (i8, i16), velocity: u8) {
-        let note = 60 + self.key as i32 +
+        let key = 60 + self.key as i32 +
             self.period as i32 * note.0 as i32 +
             note.1 as i32;
-        if note <= 127 && note >= 0 {
+
+        if key <= 127 && key >= 0 {
+            self.notes.push((ch,note));
+
             let msg = portmidi::MidiMessage {
                 status: 0x90 + (ch as u8),
-                data1: note as u8,
+                data1: key as u8,
                 data2: velocity,
             };
             drop(self.midi_out.write_message(msg));
@@ -104,16 +111,34 @@ impl Backend {
     }
 
     fn note_off(&mut self, ch: u8, note: (i8, i16), velocity: u8) {
-        let note = 60 + self.key as i32 +
+        let key = 60 + self.key as i32 +
             self.period as i32 * note.0 as i32 +
             note.1 as i32;
-        if note <= 127 && note >= 0 {
+
+        if key <= 127 && key >= 0 {
+            self.notes.retain(|n| *n != (ch, note));
+
             let msg = portmidi::MidiMessage {
                 status: 0x80 + (ch as u8),
-                data1: note as u8,
+                data1: key as u8,
                 data2: velocity,
             };
             drop(self.midi_out.write_message(msg));
+        }
+    }
+
+    fn all_notes_off(&mut self) {
+        for (ch, note) in self.notes.drain(..) {
+            let key = 60 + self.key as i32 +
+                self.period as i32 * note.0 as i32 +
+                note.1 as i32;
+
+            let msg = portmidi::MidiMessage {
+                status: 0x80 + (ch as u8),
+                data1: key as u8,
+                data2: 64,
+            };
+            drop(self.midi_out.write_message(msg));        
         }
     }
 }
@@ -124,6 +149,7 @@ pub enum Token {
     String(String),
     Integer(i64),
     Word(String),
+    Null,
 }
 
 fn is_digit(d: char) -> bool {
@@ -213,6 +239,9 @@ pub fn tokenize(string: &str) -> Vec<Token> {
                 }
             },
             Some(' ') | Some('\n') | Some('\t') | Some(',') => (),
+            Some('_') => {
+                toks.push(Token::Null);
+            }
             Some('-') => {
                 let la = chs.next();
                 match la {
@@ -272,6 +301,14 @@ impl Interpreter {
         }
     }
 
+    fn read_option_integer(&mut self) -> Result<Option<i64>, ()> {
+        match self.stack.pop() {
+            Some(Token::Integer(i)) => Ok(Some(i)),
+            Some(Token::Null) => Ok(None),
+            _ => Err(()),
+        }
+    }
+
     fn read_note(&mut self) -> Result<(i8, i16), ()> {
         match self.stack.pop() {
             Some(Token::Note(o, n)) => Ok((o, n)),
@@ -309,14 +346,14 @@ impl Interpreter {
     fn exec_word(&mut self, word: &str) -> Result<(), ()> {
         match word {
             "+" => {
-                let vel = self.read_integer()?;
+                let vel = self.read_option_integer()?.unwrap_or(64);
                 let note = self.read_note()?;
                 let ch = self.read_integer()?;
 
                 drop(self.backend.send(Message::NoteOn(ch as u8, note, vel as u8)));
             },
             "." => {
-                let vel = self.read_integer()?;
+                let vel = self.read_option_integer()?.unwrap_or(64);
                 let note = self.read_note()?;
                 let ch = self.read_integer()?;
 
@@ -348,18 +385,19 @@ impl Interpreter {
                 drop(self.backend.send(Message::Lpb(lpb as u16)));
             },
             "w" => {
-                drop(self.backend.send(Message::Wait));
+                let time = self.read_integer()?;
+                drop(self.backend.send(Message::Wait(time as u16)));
             },
             "p" => {
                 self.read_file()?;
 
-                let to = self.read_integer()?;
+                let to = self.read_option_integer()?.unwrap_or(self.lines.len() as i64);
                 let from = self.read_integer()? - 1;
 
                 let lines = self.lines.get(from as usize .. to as usize).ok_or(())?.to_owned();
                 for l in lines {
                     self.exec(&l);
-                    drop(self.backend.send(Message::Wait));
+                    drop(self.backend.send(Message::Wait(1)));
 
                     for m in self.postponed.drain(..) {
                         drop(self.backend.send(m));
@@ -441,7 +479,7 @@ mod tests {
     fn basic_tokenize() {
         use Token::*;
 
-        let string = "1d0,64+ 2d7,64+ 1d0-".to_string();
+        let string = "1d0,64+ 2d7,64+ 1d0-";
         let tokens = tokenize(string);
         assert_eq!(&*tokens, &[
             Integer(1), Note(0, 0), Integer(64), Word("+".to_string()),

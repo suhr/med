@@ -8,3 +8,6 @@ portmidi = "^0.2"
 monochord = "0.1"
 rustyline = "1.0"
 clap = "2"
+
+[profile.release]
+lto = true
