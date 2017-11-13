@@ -1,8 +1,10 @@
 # MED: The Ed of Music Trackers
 
-Med is a simple tool that reads commands and emits MIDI messages. When it reads commands from a file, it executes each line with a delay, working as a music tracker.
+Med is a simple tool that reads commands and emits MIDI messages. It can read commands line from the stdin, or from a file.  When it reads commands from a file, it executes each line with a delay, working as a music tracker.
 
 Commands are postfix, so values are listed before the command. Spaces are ignored, as well as the `,` symbol. Note syntax is `[a-h]\d+`. So `0d0,64+` is the same as `0 d0 64 +`. `_` is null, it used in place of optional arguments.
+
+Everything in a line after `--` is a comment and is ignored by the interpreter.
 
 Supported commands (arguments in `[]` are optional):
 
@@ -16,6 +18,10 @@ Supported commands (arguments in `[]` are optional):
 - (`n`) `w`: Wait n line times
 - (`from`, [`to`]) `p`: Play file lines, from `from` to `to`. Each line is played with a delay, like in a music tracker
 - `s`: Stop playing
+
+When you open a file with med, it immediately executes (without delay) lines before the first empty line. After that, it shows a cli allowing you to enter commands.
+
+Use `p` to play the file and `s` to stop playing.
 
 ## Note syntax
 
