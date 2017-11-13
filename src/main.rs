@@ -245,6 +245,9 @@ pub fn tokenize(string: &str) -> Vec<Token> {
             Some('-') => {
                 let la = chs.next();
                 match la {
+                    Some('-') => {
+                        break
+                    },
                     Some(d) if is_digit(d) => {
                         let (num, la) = read_number(d, &mut chs);
                         let n: i64 = num.parse().expect("MINUS FAIL");
@@ -479,7 +482,7 @@ mod tests {
     fn basic_tokenize() {
         use Token::*;
 
-        let string = "1d0,64+ 2d7,64+ 1d0-";
+        let string = "1d0,64+ 2d7,64+ 1d0-  -- f1. Hello I'm a comment!";
         let tokens = tokenize(string);
         assert_eq!(&*tokens, &[
             Integer(1), Note(0, 0), Integer(64), Word("+".to_string()),
