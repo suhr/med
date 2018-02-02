@@ -138,7 +138,7 @@ impl Backend {
                 data1: key as u8,
                 data2: 64,
             };
-            drop(self.midi_out.write_message(msg));        
+            drop(self.midi_out.write_message(msg));
         }
     }
 }
@@ -334,7 +334,7 @@ impl Interpreter {
         if let Some(ref file) = self.file {
             let file = ::std::fs::File::open(file).map_err(|_| ())?;
             let reader = BufReader::new(file);
-            
+
             let mut lines: Vec<String> = vec![];
             for l in reader.lines() {
                 lines.push(l.map_err(|_| ())?)
@@ -424,7 +424,7 @@ fn open_file(path: &std::path::PathBuf) -> Vec<String> {
     let file = ::std::fs::File::open(&path)
         .expect(&*format!("Failed to open {}", name));
     let reader = BufReader::new(file);
-    
+
     let mut lines: Vec<String> = vec![];
     for l in reader.lines() {
         lines.push(l.expect(&*format!("Failed to read {}", name)))
@@ -437,6 +437,10 @@ fn main() {
     let matches = clap::App::new("med")
         .version(env!("CARGO_PKG_VERSION"))
         .about("The Ed of music trackers")
+        .arg(
+            clap::Arg::with_name("pipe")
+            .long("pipe")
+        )
         .arg(
             clap::Arg::with_name("file")
             .help("MED file")
@@ -458,6 +462,25 @@ fn main() {
     };
 
     int.init();
+
+    if matches.is_present("pipe") {
+        let stdin = ::std::io::stdin();
+        let mut buf = String::new();
+
+        loop {
+            match stdin.read_line(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    int.exec(&buf[..n]);
+                },
+                err => {
+                    err.unwrap();
+                },
+            }
+        }
+
+        return
+    }
 
     let mut rl: rustyline::Editor<()> = rustyline::Editor::new();
     rl.set_history_max_len(1024);
