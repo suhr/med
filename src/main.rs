@@ -465,18 +465,10 @@ fn main() {
 
     if matches.is_present("pipe") {
         let stdin = ::std::io::stdin();
-        let mut buf = String::new();
 
-        loop {
-            match stdin.read_line(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    int.exec(&buf[..n]);
-                },
-                err => {
-                    err.unwrap();
-                },
-            }
+        let lock = stdin.lock();
+        for line in lock.lines() {
+            int.exec(&line.unwrap());
         }
 
         return
