@@ -23,6 +23,12 @@ When you open a file with med, it immediately executes (without delay) lines bef
 
 Use `p` to play the file and `s` to stop playing.
 
+## Installation
+
+1. Install [Rust](https://www.rust-lang.org/)
+2. `cargo install --git https://github.com/suhr/med.git`
+
+
 ## Note syntax
 
 Note symbol looks like `c7` or `d0`. The symbol, which can be from ‘a’ to ‘h’ is the octave. The number, which can be any reasonably sized integer, is the number of steps. That number is different in different EDOs, for example, a perfect fifth is 7 steps wide in 12edo but 18 steps wide in 31edo.
